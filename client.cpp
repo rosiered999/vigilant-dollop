@@ -8,8 +8,6 @@
 #include<netinet/in.h>
 #include<sys/socket.h>
 #include<arpa/inet.h>
-#include<iostream>
-#include<bits/stdc++.h>
 #define PORT "502"
 
 void *get_in_addr(struct sockaddr *sa)
@@ -21,76 +19,80 @@ void *get_in_addr(struct sockaddr *sa)
   return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(int argc, char* argv[])
+int network_init()
 {
-  int sockfd, numbytes;
- // unsigned char buf[12] = {0x00,0x01,0x00,0x00,0x00,0x06,0x11,0x04,0x00,0x08,0x00,0x01};
+    int sockfd;
+    char hostname[200];
+    printf("Enter device IP address: ");
+    scanf("%[^\n]", hostname);
+   // if(strcmp(hostname,"\n")==0)
+      //hostname[] = "localhost";
+    printf("Initialising...\n");
+    struct addrinfo hints, *servinfo, *p;
+    int rv;
+    char s[INET6_ADDRSTRLEN];
 
-  //printf("%X begin\n",buf );
-  char hostname[200];
-  printf("Enter device IP address: ");
-  scanf("%s", hostname);
-  printf("Initialising...\n");
-  unsigned char reply[50];
-  struct addrinfo hints, *servinfo, *p;
-  int rv;
-  char s[INET6_ADDRSTRLEN];
+    memset(&hints,0,sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
 
-  memset(&hints,0,sizeof(hints));
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-
-  if((rv=getaddrinfo(hostname,PORT,&hints,&servinfo))!=0)
-  {
-    fprintf(stderr, "getaddrinfo %s\n", gai_strerror(rv));
-    return 1;
-  }
-
-  for(p=servinfo; p!=NULL;p=p->ai_next)
-  {
-    if((sockfd = socket(p->ai_family,p->ai_socktype,p->ai_protocol))==-1)
+    if((rv=getaddrinfo(hostname,PORT,&hints,&servinfo))!=0)
     {
-      perror("client:socket");
-      continue;
+      fprintf(stderr, "getaddrinfo %s\n", gai_strerror(rv));
+      return 1;
     }
-    if(connect(sockfd, p->ai_addr,p->ai_addrlen)==-1)
+
+    for(p=servinfo; p!=NULL;p=p->ai_next)
     {
-    //    printf("%s\n", p->ai_addr);
-     // perror("client connect");
-      continue;
+      if((sockfd = socket(p->ai_family,p->ai_socktype,p->ai_protocol))==-1)
+      {
+        perror("client:socket");
+        continue;
+      }
+      if(connect(sockfd, p->ai_addr,p->ai_addrlen)==-1)
+      {
+        continue;
+      }
+      break;
     }
-    break;
-  }
-  if(p==NULL)
-  {
-     fprintf(stderr, "client failed to connect\n");
-     return 2;
-  }
+    if(p==NULL)
+    {
+       fprintf(stderr, "client failed to connect\n");
+       return 2;
+    }
 
-  inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),s,sizeof(s));
-  printf("client connecting to %s\n", s);
+    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),s,sizeof(s));
+    printf("client connecting to %s\n", s);
 
-  freeaddrinfo(servinfo);
- // do {
-    //  scanf("%s", buf);
-        //printf("%s\n", buf);
-    unsigned char buf[13];
-    buf[0] = '\x00';
-    buf[1] = '\x01';
-    buf[2] = '\x00';
-    buf[3] = '\x00';
-    buf[4] = '\x00';
-    buf[5] = '\x06';
-    int k=5;
-    printf("\nEnter the required data ending with 00: ");
-    for(int i=0;i<=5;i++)
+    freeaddrinfo(servinfo);
+    return sockfd;
+}
+
+unsigned char* request_create()
+{
+    unsigned char* buf = malloc(12);
+    printf("\nEnter the required data: ");
+    for(int i=0;i<11;i++)
     {
         unsigned char c;
         scanf("%x\n", &c);
-        k++;
-        buf[k]=c;
-      //  printf("%d\n", i);
+        buf[i]=c;
     }
+    buf[12] = '\x00';
+/*    for(int i=0;i<12;i++)
+    {
+        printf("%x\n", buf[i]);
+    }*/
+    return buf;
+}
+
+int main(int argc, char* argv[])
+{
+    int numbytes;
+    unsigned char reply[50];
+    int sockfd = network_init();
+    unsigned char* buf = request_create();
+    int k;
     printf("connecting...\n");
       if((k =send(sockfd,buf,12,0)) < 0)
       {
