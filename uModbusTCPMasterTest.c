@@ -90,6 +90,7 @@ int main(int argc, char* argv[])
                 }
                 break;
             }
+
             case 4:
             {
                 uint16_t starting_addr;
@@ -131,6 +132,7 @@ int main(int argc, char* argv[])
                 printf("Enter the register value: ");
                 scanf(" %hd", &reg_val);
                 write_single_reg(reg_addr,reg_val);
+                break;
             }
             case 15:
             {
@@ -146,8 +148,10 @@ int main(int argc, char* argv[])
                 uint8_t coils_status_size;
                 scanf(" %hhd", &coils_status_size);
                 uint8_t *coils_status = malloc(coils_status_size);
+                printf("Enter coil status (0 for OFF and 1 for ON): \n");
                 for(int i=starting_addr;i<coil_count+starting_addr;i++)
                 {
+                    printf("%d: ",i );
                     scanf(" %d", &coils_status[i]);
                 //    k++;
                 }

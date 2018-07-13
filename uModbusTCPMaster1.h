@@ -174,7 +174,7 @@ uint32_t read_discrete_inputs (uint16_t starting_addr,
         {
             char p = ((j==8)?'\n':' ');
             int hi = (b)&1;
-            printf("%d\n", hi);
+        //    printf("%d\n", hi);
             inputs_status[k] = hi;
             k++;
             b = b>>1;
@@ -335,26 +335,75 @@ uint32_t write_single_reg (uint16_t reg_addr, uint16_t reg_val)
     //printf("received\n");
 }
 
+
 uint32_t write_multiple_coils (uint16_t starting_addr,
                               uint16_t coils_count,
                               uint8_t *coils_status,
 						  	  uint16_t coils_status_size)
 {
     starting_addr--;
-    uint8_t* buf = malloc(14);
+    int last = 0;
+    //memset(&buf,0,200;
+    uint16_t* buf = malloc(15);
     buf[0] = '\x00';
     buf[1] = '\x01';
     buf[2] = '\x00';
     buf[3] = '\x00';
     buf[4] = '\x00';
-    buf[5] = '\x06';
+    buf[5] = '\x09';
     buf[6] = slave_address;
     buf[7] = '\x0F';
-    buf[8] = (starting_addr>>8)& '\xFF';
-    buf[9] = (starting_addr)& '\xFF';
-    buf[10] = (coils_count>>8)& '\xFF';
-    buf[11] = (coils_count)& '\xFF';
-    buf[12] = '\x00';
+    buf[8] = '\x00';
+    buf[9] = '\x13';
+    buf[10] = '\x00';
+    buf[11] = '\x0A';
+    buf[12] = '\x02';
+    buf[13] = '\xCD';
+    buf[14] = '\x01';
+    buf[15] = '\x00';
+    msg_len = 15;
+
+    /*buf[5] = 6 + ceil(coils_count/8);
+    printf("%d\n", buf[5]);
+    buf[6] = slave_address;
+    buf[7] = '\x0F';
+    buf[8] = coils_count;
+    int k = 0;
+    int l = 9;
+    for(int i=1;i<=coils_count;i+=4)
+    {
+        uint16_t byte = 0;
+        for (int j=0; j < 4; ++j)
+        {
+            //printf("%d\n", coils_status[i+j]);
+            if (coils_status[i+j])
+                byte |= 1 << 3-j;
+        }
+        if(k%2==0)
+            buf[l] = byte;
+        else
+        {
+            int temp;
+            //printf("in multiple coils4\n" );
+            temp = byte | (buf[l]<<4);
+            //printf("%x\n", temp);
+            buf[l] = temp;
+            l++;
+        }
+        //printf("%x\n", byte);
+        k++;
+    }
+    for(int i=l;i<200;i++)
+    {
+        buf[i] = '\x00';
+    }
+*/
+//    msg_len = l;
+    for(int i=0;i<msg_len;i++)
+    {
+        printf("%d\n", buf[i]);
+    }
+    printf("%d \n", msg_len);
     uint32_t send_ret_val;
 
     if((send_error_check(sockfd, buf, send_ret_val)==UMODBUS_SEND_ERROR))
@@ -365,4 +414,19 @@ uint32_t write_multiple_coils (uint16_t starting_addr,
     if(recv_error_check(sockfd,reply,&recv_ret_val)==UMODBUS_RECEIVE_ERROR)
         return UMODBUS_RECEIVE_ERROR;
     //printf("received\n");
+}
+
+uint32_t mask_write_reg (uint16_t ref_addr,
+                        uint16_t and_mask,
+                        uint16_t or_mask)
+{
+    uint8_t* buf = malloc(14);
+    buf[0] = '\x00';
+    buf[1] = '\x01';
+    buf[2] = '\x00';
+    buf[3] = '\x00';
+    buf[4] = '\x00';
+    buf[5] = '\x06';
+    buf[6] = slave_address;
+
 }
