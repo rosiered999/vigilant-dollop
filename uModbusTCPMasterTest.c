@@ -1,5 +1,5 @@
 #include "uModbusTCPMaster.h"
-#include "uModbusTCPMaster1.h"
+#include "uModbusTCPMaster.c"
 
 int main(int argc, char* argv[])
 {
