@@ -46,7 +46,7 @@ int main(int argc, char* argv[])
 
                 break;
             }
-            case 5:
+        /*    case 5:
             {
                 uint16_t coil_addr;
                 uint16_t coil_status;
@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
                 scanf(" %hd", &coil_status);
                 write_single_coil(coil_addr,coil_status);
                 break;
-            }
+            }*/
         }
     }
 }

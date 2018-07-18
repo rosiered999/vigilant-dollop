@@ -1,11 +1,34 @@
 #include<math.h>
 #include<ctype.h>
 
-//TO-DOS
-//write something like a signal handler to keep checking
-//write a sig handler for freeing the request and response ADUs?
-// if the connection is open, if not reconnect (POLL)
-//packed structure in send and recv research; struct with all pointers if no packed
+//TODO:write something like a signal handler to keep checking
+
+//TODO:write a sig handler for freeing the request and response ADUs?
+
+// TODO:if the connection is open, if not reconnect (POLL)
+
+/*TODO:packed structure in send and recv research; struct with all pointers if no packed
+https://stackoverflow.com/questions/8568432/is-gccs-attribute-packed-pragma-pack-unsafe*/
+
+//TODO:pased headerlen from which byte len is there size of len, default; define as macros
+
+//TODO:length in header matches bytes ret
+
+struct packet {
+    //GCC Specific
+    //
+    uint8_t transaction_id_hi;
+    uint8_t transaction_id_lo;
+    uint8_t protocol_id_hi;
+    uint8_t protocol_id_lo;
+    uint8_t length_hi;
+    uint8_t length_lo;
+    uint8_t slave_address;
+    uint8_t function_code;
+    uint8_t *data;
+
+} __attribute__((packed));
+
 
 //Macros
 #define HEADER_LEN 9
@@ -16,13 +39,14 @@
 uint8_t *total_ADU;
 uint8_t *request_ADU;
 uint8_t *response_ADU;
-uint8_t msg_len;
+struct packet* tcp_packet;
 uint8_t is_network_init = 0;
 uint32_t sockfd;
 uint32_t slave_address;
 uint32_t transaction_id = 0; //pairing req and response, synchronous,
 
 //fill header function, slave,
+
 uint8_t* fill_header(uint16_t length)
 {
     uint8_t* temp_ptr;
@@ -52,6 +76,7 @@ void data_struct_init(){
     //new pointer pointing to requestadu + tcp header len
     request_ADU = total_ADU;
     response_ADU = total_ADU+MAX_MODBUS_FRAME_SIZE;
+    struct packet *tcp_packet = malloc(sizeof(struct packet));
 }
 
 uint32_t network_init (uint8_t *ip_address, uint16_t port_num){
@@ -128,11 +153,11 @@ uint32_t network_init (uint8_t *ip_address, uint16_t port_num){
 uint32_t send_recv(uint32_t sockfd,
                    uint32_t* buf,
                    uint32_t* send_len,
-                   uint32_t* reply,
-                   uint32_t* recv_len){
+                   uint32_t* reply){
     //Definitions
     int send_ret_val, recv_ret_val;
-    int ret_val;
+    int recv_len = HEADER_LEN;
+    int ret_val = UMODBUS_STATUS_SUCCESS;
     //TCP reconnection loop
     if(send_len!=0 && ((send_ret_val=send(sockfd,request_ADU,send_len,0)) < 0)) //or strlen(request_ADU != last_pos_request)
     {
@@ -148,10 +173,16 @@ uint32_t send_recv(uint32_t sockfd,
         else
         {
             //printf("receiving...\n");
-            response_ADU[recv_ret_val] = '\0';
+            //response_ADU[recv_ret_val] = '\0';
             //printf("recv ret val in send rev%d\n", recv_ret_val);
             ret_val = UMODBUS_STATUS_SUCCESS;
         }
+    }
+    int response_size = response_ADU[8];
+    int ret;
+    if((ret=recv(sockfd, (response_ADU+recv_len),response_size,0))<0)
+    {
+        ret_val = UMODBUS_RECEIVE_ERROR;
     }
     return ret_val;
 }
@@ -190,129 +221,42 @@ uint32_t read_coils (uint16_t starting_addr,
         temp_ptr++;
         *temp_ptr = (coil_count)& '\xFF';
         temp_ptr++;
-        *temp_ptr = '\x00';
-        temp_ptr++;
 
         send_len = (temp_ptr - request_ADU);
         recv_len = HEADER_LEN;
-
-        int ret; //pased headerlen from which byte len is there size of len, default; define as macros
-        //length in header matches bytes ret
-        if((ret = send_recv(sockfd, request_ADU, send_len, response_ADU, recv_len))==UMODBUS_RECEIVE_ERROR)
-        {
-            ret_val = UMODBUS_RECEIVE_ERROR;
-        }
-        else
-        {
-            send_len = 0;
-            int response_size = response_ADU[8];
-            int ret;
-            if((ret=recv(sockfd, (response_ADU+recv_len),response_size,0))<0)
-            {
-                ret_val = UMODBUS_RECEIVE_ERROR;
-            }
-            else
-            {
-                int coils_status_index=0;
-                //Filling the response string
-                for(int i=1;i<=response_size;i++)
-                {
-                    int temp_byte = (response_ADU[8+i]);
-                    for(int j=1;j<=8;j++)
-                    {
-                        int bit = (temp_byte)&1;
-                        coils_status[coils_status_index] = bit;
-                        coils_status_index++;
-                        temp_byte = temp_byte>>1;
-                    }
-                }
-                ret_val = UMODBUS_STATUS_SUCCESS;
-            }
-        }
-    }
-    msg_len = 0;
-    return ret_val;
-}
-
-uint32_t write_single_coil (uint16_t coil_addr, uint16_t coil_status)
-{
-    uint32_t ret_val = UMODBUS_STATUS_SUCCESS;
-
-    if(coil_addr<=0 )
-    {
-        ret_val = UMODBUS_INVALID_PARAM;
-    }
-    else
-    {
-        uint32_t send_len, recv_len;
-        //MODBUS protocol starts returning after skipping one value. To prevent that:
-        coil_addr--;
-
-        //Assigning values to the request string
-        uint8_t *temp_ptr = request_ADU+msg_len;
-        *(temp_ptr) = '\x00'; //Length high
-        temp_ptr++;
-        *temp_ptr = '\x06';
-        temp_ptr++;
-        *temp_ptr = slave_address;
-        temp_ptr++;
-        *temp_ptr = '\x05';
-        temp_ptr++;
-        *temp_ptr = (coil_addr>>8)& '\xFF';
-        temp_ptr++;
-        *temp_ptr = (coil_addr)& '\xFF';
-        temp_ptr++;
-
-        if(coil_status == 1)
-        {
-            *temp_ptr = '\xFF';
-            temp_ptr++;
-            *temp_ptr = '\x00';
-            temp_ptr++;
-        }
-        else
-        {
-            *temp_ptr = '\x00';
-            temp_ptr++;
-            *temp_ptr = '\x00';
-            temp_ptr++;
-        }
-
-        send_len = (temp_ptr - request_ADU);
-        recv_len = HEADER_LEN;
-
+        printf("sendlen%d\n", send_len);
         for(int i=0;i<send_len;i++)
         {
             printf("%x\n", *(request_ADU+i));
         }
 
         int ret;
-        if((ret = send_recv(sockfd, request_ADU, send_len, response_ADU, recv_len))==UMODBUS_RECEIVE_ERROR)
+        if((ret = send_recv(sockfd, request_ADU, send_len, response_ADU))==UMODBUS_RECEIVE_ERROR)
         {
             ret_val = UMODBUS_RECEIVE_ERROR;
         }
         else
         {
             send_len = 0;
+            int coils_status_index=0;
+            //Filling the response string
             int response_size = response_ADU[8];
-            int ret;
-            if((ret=recv(sockfd, (response_ADU+recv_len),response_size,0))<0)
+            for(int i=1;i<=response_size;i++)
             {
-                ret_val = UMODBUS_RECEIVE_ERROR;
-            }
-            else
-            {
-                /*int coils_status_index=0;
-                //Filling the response string
-                for(int i=1;i<=response_size;i++)
+                int temp_byte = (response_ADU[8+i]);
+                for(int j=1;j<=8;j++)
                 {
-                    int temp_byte = (response_ADU[8+i]);
-                    printf("%x\n", temp_byte);
-                }*/
-                ret_val = UMODBUS_STATUS_SUCCESS;
+                    int bit = (temp_byte)&1;
+                    coils_status[coils_status_index] = bit;
+                    coils_status_index++;
+                    temp_byte = temp_byte>>1;
+                }
             }
+            ret_val = UMODBUS_STATUS_SUCCESS;
         }
     }
-    msg_len = TCP_HEADER_LEN;
+    memset(total_ADU,0,2*MAX_MODBUS_FRAME_SIZE);
+    request_ADU = total_ADU;
+    response_ADU = total_ADU+MAX_MODBUS_FRAME_SIZE;
     return ret_val;
 }
