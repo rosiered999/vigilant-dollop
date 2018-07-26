@@ -1,6 +1,6 @@
 /**
  *  @file    uModbusTCPMasterTest.c
- *  @author  Soujanya Chandrashekar
+ *  @author  Anusha Somashekar, Soujanya Chandrashekar
  *  @date    24/7/2018
  *
  *  @brief Testing program for MODBUS TCP client
@@ -162,7 +162,7 @@ int main(int argc, char* argv[])
                 printf("coils values to be written: \n");
                 //printf("css%d\n", coils_status_size);
                 //temp_ptr = coil_status;
-                for(int i=1;i<=coils_status_size;i++)
+                for(int i=1;i<=coils_count;i++)
                 {
                     printf("%d: ", i);
                     scanf(" %d[^\n]", (coils_status+i-1));
@@ -197,6 +197,16 @@ int main(int argc, char* argv[])
             }
             case 22:
             {
+                uint16_t ref_addr;
+                printf("Enter reference address\n");
+                scanf("%hd", &ref_addr);
+                uint16_t and_mask;
+                printf("Enter and mask\n");
+                scanf("%hd", &and_mask);
+                uint16_t or_mask;
+                printf("Enter or mask\n");
+                scanf("%hd", &or_mask);
+                mask_write_reg ( ref_addr, and_mask, or_mask);
                 break;
             }
             case 23:
@@ -265,11 +275,30 @@ int main(int argc, char* argv[])
             }
             case 43:
             {
-                uint32_t encap_interface_transport (uint8_t MEI_type,
-                                                    uint16_t *MEI_type_data,
-                									uint32_t *MEI_type_data_size);
-
-
+                uint8_t MEI_type;
+                printf("enter MEI type\n");
+                scanf("%hd[^\n]", &MEI_type);
+                //printf("mei type ou t%d\n", MEI_type);
+                uint8_t *temp;
+                uint16_t *MEI_type_data = malloc(2); //device ID code and object ID
+                printf("enter read device ID code\n");
+                scanf("%hd[^\n]", (MEI_type_data));
+                //printf("mei type data out %d\n", *MEI_type_data);
+                printf("enter object id\n");
+                scanf("%hd[^\n]", (MEI_type_data+1));
+                //printf("mei type data one%d\n", *(MEI_type_data+1));
+                uint32_t *MEI_type_data_size = malloc(sizeof(uint32_t));
+                //MEI_type data conatins read device ID code and object ID
+                //was going to use mei type data as the return array also and for that need a size but if wrong size return original
+                //mei type data and the correct size for the array
+                encap_interface_transport (MEI_type, MEI_type_data, MEI_type_data_size);
+                int resp_len = *MEI_type_data_size;
+                printf("resp_len%d\n", resp_len);
+                //temp = MEI_type_data;
+                for(int i=0;i<resp_len;i++)
+                {
+                    printf("%x\n", MEI_type_data[i]);
+                }
                 break;
             }
         }

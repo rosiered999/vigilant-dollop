@@ -28,7 +28,7 @@
 
 //TODO:sent header matches received header
 
-//DOUBT: FIFO_num replaced by actual number all the time or not
+//DOUBT: CANopen protocol not part of the Modbus/TCP specification?
 
 struct packet {
     uint8_t transaction_id_hi;
@@ -52,6 +52,7 @@ struct packet {
 //Global Definitions
 uint8_t *memory_pool;
 uint8_t *send_buffer;
+uint16_t *MEI_return_values;
 uint8_t *receive_buffer;
 struct packet *request_ADU;
 struct packet *response_ADU;
@@ -59,6 +60,8 @@ uint8_t is_network_init = 0;
 uint32_t sockfd;
 uint32_t slave_address;
 uint32_t transaction_id = 0;
+uint32_t total_resp_size = 0;
+int is_encap_called = 0;
 
 /**
 *   @brief Fills the packet to be sent to the MODBUS device.
@@ -91,6 +94,7 @@ void data_struct_init(){
     memory_pool = malloc(2*MAX_MODBUS_FRAME_SIZE);
     request_ADU = send_buffer = memory_pool;
     response_ADU = receive_buffer = memory_pool+MAX_MODBUS_FRAME_SIZE;
+    MEI_return_values = malloc(1);
 }
 
 /**
@@ -201,6 +205,7 @@ uint32_t send_recv(uint32_t sockfd, ///change the global vars
     send_ret_val = send(sockfd,send_buf,send_len,0);
     if(send_buf[7]=='\x18')
     {
+        send_len = 256;
         for(int i=0;i<=7;i++)
         {
             *(receive_buf+i) = *(send_buf+i);
@@ -217,6 +222,119 @@ uint32_t send_recv(uint32_t sockfd, ///change the global vars
         *(receive_buf+17) = '\x84';
         *(receive_buf+18) = '\x01';
         *(receive_buf+19) = '\x02';
+        return UMODBUS_STATUS_SUCCESS;
+    }
+    else if(send_buf[7]=='\x2B' && is_encap_called==0)
+    {
+        //receive_len = 13;
+        for(int i=0;i<=9;i++)
+        {
+            *(receive_buf+i) = *(send_buf+i);
+        }
+        *(receive_buf+10) = '\x01';//conformity level
+        *(receive_buf+11) = '\xFF';//more follows
+        *(receive_buf+12) = '\x02';//next obj id
+        *(receive_buf+13) = '\x03';//number of objects
+
+        uint8_t *temp_ptr;
+        temp_ptr = receive_buf+14;
+        *temp_ptr = '\x00';//obj id
+        temp_ptr++;
+        *temp_ptr = '\x10';//obj len
+        temp_ptr++;
+
+        char str[22] = "Company identification";
+        for(int i=0;i<22;i++)
+        {
+            *temp_ptr = str[i];//obj val
+            temp_ptr++;
+        }
+
+        *temp_ptr = '\x01';//obj id
+        temp_ptr++;
+
+        *temp_ptr = '\x1C';//obj len
+        temp_ptr++;
+
+        char str1[29] = "Product code XXXXXXXXXXXXXXXX";
+        for(int i=0;i<29;i++)
+        {
+            *temp_ptr = str1[i];//obj val
+            temp_ptr++;
+        }
+        int overall_len = temp_ptr - receive_buf;
+        printf("overall len11111%d %d %d\n", overall_len,  receive_buf[4], receive_buf[5]);
+        receive_buf[4] = (overall_len>>8)& '\xFF';
+        receive_buf[5] = (overall_len)& '\xFF';
+        is_encap_called++;
+        return UMODBUS_STATUS_SUCCESS;
+    }
+    else if(send_buf[7]=='\x2B' && is_encap_called==1)
+    {
+        for(int i=0;i<=9;i++)
+        {
+            *(receive_buf+i) = *(send_buf+i);
+        }
+
+        *(receive_buf+10) = '\x01';//conformity level
+        *(receive_buf+11) = '\xFF';//more follows
+        *(receive_buf+12) = '\x00';//next obj id
+        *(receive_buf+13) = '\x03';//number of objects
+
+        uint8_t *temp_ptr;
+        temp_ptr = receive_buf+14;
+
+        *temp_ptr = '\x02';//obj id
+        temp_ptr++;
+
+        *temp_ptr = '\x05';//obj len
+        temp_ptr++;
+
+        char str2[5] = "V2.11";
+        for(int i=0;i<5;i++)
+        {
+            *temp_ptr = str2[i];//obj val
+            temp_ptr++;
+        }
+        int overall_len = temp_ptr - receive_buf;
+        receive_buf[4] = (overall_len>>8)& '\xFF';
+        receive_buf[5] = (overall_len)& '\xFF';
+        printf("overall len222222%d %d %d\n", overall_len, receive_buf[4], receive_buf[5]);
+        is_encap_called++;
+        return UMODBUS_STATUS_SUCCESS;
+    }
+    else if(send_buf[7]=='\x2B' && is_encap_called==2)
+    {
+        for(int i=0;i<=9;i++)
+        {
+            *(receive_buf+i) = *(send_buf+i);
+        }
+
+        *(receive_buf+10) = '\x01';//conformity level
+        *(receive_buf+11) = '\x00';//more follows
+        *(receive_buf+12) = '\x00';//next obj id
+        *(receive_buf+13) = '\x03';//number of objects
+
+        uint8_t *temp_ptr;
+        temp_ptr = receive_buf+14;
+
+        *temp_ptr = '\x02';//obj id
+        temp_ptr++;
+
+        *temp_ptr = '\x05';//obj len
+        temp_ptr++;
+
+        char str2[5] = "V2.22";
+        for(int i=0;i<5;i++)
+        {
+            *temp_ptr = str2[i];//obj val
+            temp_ptr++;
+        }
+        int overall_len = temp_ptr - receive_buf;
+        receive_buf[4] = (overall_len>>8)& '\xFF';
+        receive_buf[5] = (overall_len)& '\xFF';
+        printf("overall len222222%d %d %d\n", overall_len, receive_buf[4], receive_buf[5]);
+        is_encap_called=0;
         return UMODBUS_STATUS_SUCCESS;
     }
 
@@ -262,7 +380,10 @@ uint32_t send_recv(uint32_t sockfd, ///change the global vars
     return ret_val;
 }
 
-
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to read coils.
+*   @author Soujanya Chandrashekar
+*/
 uint32_t read_coils (uint16_t starting_addr,
                      uint16_t coil_count,
                      uint8_t *coils_status,
@@ -349,6 +470,10 @@ uint32_t read_coils (uint16_t starting_addr,
     return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to read discrete inputs.
+*   @author Anusha Somashekar
+*/
 uint32_t read_discrete_inputs (uint16_t starting_addr,
                                uint16_t inputs_count,
                                uint8_t *inputs_status,
@@ -436,6 +561,10 @@ uint32_t read_discrete_inputs (uint16_t starting_addr,
     return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to read holding registers.
+*   @author Soujanya Chandrashekar
+*/
 uint32_t read_holding_reg (uint16_t starting_addr,
                           uint16_t reg_count,
 						  uint8_t *reg_values,
@@ -519,6 +648,10 @@ uint32_t read_holding_reg (uint16_t starting_addr,
     return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to read input registers.
+*   @author Soujanya Chandrashekar
+*/
 uint32_t read_input_reg (uint16_t starting_addr,
                           uint16_t reg_count,
 						  uint8_t *reg_values,
@@ -602,6 +735,10 @@ uint32_t read_input_reg (uint16_t starting_addr,
       return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to write a single coil.
+*   @author Anusha Somashekar
+*/
 uint32_t write_single_coil (uint16_t coil_addr, uint16_t coil_status){
     uint32_t ret_val = UMODBUS_STATUS_SUCCESS;
 
@@ -678,6 +815,10 @@ uint32_t write_single_coil (uint16_t coil_addr, uint16_t coil_status){
     return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to write single register.
+*   @author Anusha Somashekar
+*/
 uint32_t write_single_reg (uint16_t reg_addr, uint16_t reg_val){
     uint32_t ret_val = UMODBUS_STATUS_SUCCESS;
 
@@ -744,14 +885,18 @@ uint32_t write_single_reg (uint16_t reg_addr, uint16_t reg_val){
     return ret_val;
 }
 
-// IS DATA BEING SENT TWICE CAUSING ERROR AND DESTROYING THE REST
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to write multiple coils.
+*   @author Anusha Somashekar
+*/
+// NOT WORKING
 uint32_t write_multiple_coils (uint16_t starting_addr,
                               uint16_t coils_count,
                               uint8_t *coils_status,
 						  	  uint16_t coils_status_size){
     uint32_t ret_val = UMODBUS_STATUS_SUCCESS;
 
-    if(starting_addr<=0 )
+    if(starting_addr<=0)
     {
         ret_val = UMODBUS_INVALID_PARAM;
     }
@@ -763,7 +908,13 @@ uint32_t write_multiple_coils (uint16_t starting_addr,
 
         //Assigning values to the request string
         //int length = ceil(coil_count/8);
-        int byte_count = ceil(coils_status_size/8);
+        int byte_count = ceil(coils_count/8.0);
+        printf("byte count %d\n", byte_count);
+        //printf("bytecount%d\n", byte_count);
+        if(byte_count==0)
+        {
+            byte_count = 1;
+        }
         uint8_t* temp_ptr = request_ADU->PDU_data;
         *temp_ptr = (starting_addr>>8)& '\xFF';
         temp_ptr++;
@@ -775,32 +926,41 @@ uint32_t write_multiple_coils (uint16_t starting_addr,
         temp_ptr++;
         *temp_ptr = byte_count;
         temp_ptr++;
-        for(int i=0;i<coils_status_size;i+=8)
+        printf("coils_count%d\n", coils_count);
+        for(int i=0;i<byte_count*8;i+=8)
         {
             int byte =0;
             int nibble1=0, nibble2=0;
             for(int j=0;j<4;j++)
             {
-                //printf("coilstat%x\n", coils_status[i+j]);
-                nibble1 |= coils_status[i+j]<< 3-j;
+                printf("coilstat%x\n", coils_status[i+j]);
+                if(i+j > coils_count)
+                    nibble1 |= 0 << j;
+                else
+                    nibble1 |= coils_status[i+j]<< 3-j;
             }
-            //printf("nibble1: %x\n", nibble1);
+            printf("nibble1: %x\n", nibble1);
 
             for(int j=0;j<4;j++)
             {
-                //printf("coilstat%x\n", coils_status[i+j]);
-                nibble2 |= coils_status[i+j+4]<< 3-j;
+                    printf("coilstat%x\n", coils_status[i+j+4]);
+                if(i+j+4 > coils_count)
+                    nibble2 |= 0 << j;
+                else
+                    nibble2 |= coils_status[i+j+4]<< 3-j;
             }
-            //printf("nibble2: %x\n", nibble2);
+            printf("nibble2: %x\n", nibble2);
             byte = nibble2 | (nibble1<<4);
             printf("byte%x\n", byte);
             *temp_ptr = byte;
             temp_ptr++;
         }
-        fill_packet('\x0F', request_ADU, DEFAULT_MSG_LEN+byte_count+1);
-
         send_len = temp_ptr - send_buffer;
-        printf("sendlen%d\n",send_len );
+        int length = send_len-DEFAULT_MSG_LEN;
+
+        fill_packet('\x0F', request_ADU, length);
+
+    //    printf("sendlen%d\n",send_len );
         int receive_len = (temp_ptr - request_ADU->PDU_data); //same as the sent data len
         int ret;
 
@@ -846,6 +1006,10 @@ uint32_t write_multiple_coils (uint16_t starting_addr,
     return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to write multiple registers.
+*   @author Anusha Somashekar
+*/
 uint32_t write_multiple_reg (uint16_t starting_addr,
                             uint16_t reg_count,
 							uint16_t *reg_val,
@@ -933,6 +1097,86 @@ uint32_t write_multiple_reg (uint16_t starting_addr,
     return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to mask and rewrite registers.
+*   @author Anusha Somashekar
+*/
+uint32_t mask_write_reg (uint16_t ref_addr,
+                        uint16_t and_mask,
+                        uint16_t or_mask)
+{
+    uint32_t ret_val = UMODBUS_STATUS_SUCCESS;
+
+    if(ref_addr<=0 )
+    {
+        ret_val = UMODBUS_INVALID_PARAM;
+    }
+    else
+    {
+        uint32_t send_len, recv_len;
+        //MODBUS protocol starts returning after skipping one value. To prevent that:
+        ref_addr--;
+
+        //Assigning values to the request string
+        //int length = ceil(coil_count/8);
+
+        uint8_t* temp_ptr = request_ADU->PDU_data;
+        *temp_ptr = (ref_addr>>8)& '\xFF';
+        temp_ptr++;
+        *temp_ptr = (ref_addr)& '\xFF';
+        temp_ptr++;
+        *temp_ptr = (and_mask>>8) & '\xFF';
+        temp_ptr++;
+        *temp_ptr = and_mask & '\xFF';
+        temp_ptr++;
+        *temp_ptr = (or_mask>>8) & '\xFF';
+        temp_ptr++;
+        *temp_ptr = or_mask & '\xFF';
+        temp_ptr++;
+
+        send_len = temp_ptr - send_buffer;
+        int length = send_len-DEFAULT_MSG_LEN;
+        fill_packet('\x16', request_ADU, length);
+        //temp_ptr = request_ADU->PDU_data;
+
+        //printf("sendlen%d req ADU %d elngth %d \n", send_len, sizeof(request_ADU), length);
+        recv_len = HEADER_LEN;
+        int receive_len = temp_ptr - request_ADU->PDU_data; //same as the sent data len
+        int ret;
+        if((ret = send_recv(sockfd, send_buffer, send_len, receive_buffer, receive_len))==UMODBUS_RECEIVE_ERROR)
+        {
+            ret_val = UMODBUS_RECEIVE_ERROR;
+        }
+        else
+        {
+            for(int i=0;i<receive_len;i++)
+            {
+                printf("in mask write %x\n", receive_buffer[i]);
+            }
+            //memory comparison for the headers of the receive and the send buffers
+            int result = memcmp(send_buffer, receive_buffer, HEADER_LEN);
+            if(result==1)
+            {
+                ret_val = UMODBUS_STATUS_SUCCESS;
+            }
+            else
+            {
+                ret_val = UMODBUS_RECEIVE_ERROR;
+            }
+        }
+    }
+    memset(memory_pool,0,2*MAX_MODBUS_FRAME_SIZE);
+    request_ADU = memory_pool;
+    send_buffer = memory_pool;
+    response_ADU = memory_pool+MAX_MODBUS_FRAME_SIZE;
+    receive_buffer = memory_pool+MAX_MODBUS_FRAME_SIZE;
+    return ret_val;
+}
+
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to read and write multiple registers.
+*   @author Soujanya Chandrashekar
+*/
 uint32_t rw_multiple_reg (uint16_t r_starting_addr,
                           uint16_t r_number,
                           uint16_t w_starting_addr,
@@ -1029,6 +1273,10 @@ uint32_t rw_multiple_reg (uint16_t r_starting_addr,
     return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to read the FIFO queue.
+*   @author Soujanya Chandrashekar
+*/
 uint32_t read_FIFO_q (uint16_t  FIFO_ptr_addr,
 					  uint16_t* FIFO_count,
 					  uint32_t* FIFO_values){
@@ -1100,50 +1348,44 @@ uint32_t read_FIFO_q (uint16_t  FIFO_ptr_addr,
     return ret_val;
 }
 
+/**
+*   @brief Creates the request ADU and receives and parses the response ADU for function to perform encapsulated interface transport.
+*   @author Soujanya Chandrashekar
+*/
 uint32_t encap_interface_transport (uint8_t MEI_type,
                                     uint16_t *MEI_type_data,
 									uint32_t *MEI_type_data_size){
     uint32_t ret_val = UMODBUS_STATUS_SUCCESS;
-
-    if(coil_addr<=0 )
+    printf("IN ENCAP\n");
+    if(MEI_type!='\x0E' )
     {
         ret_val = UMODBUS_INVALID_PARAM;
     }
-    else
+    else if(MEI_type=='\x0E')
     {
+        //MEI_type data conatins read device ID code and object ID
+        //was going to use mei type data as the return array also and for that need a size but if wrong size return original
+        //mei type data and the correct size for the array
         uint32_t send_len, recv_len;
-        //MODBUS protocol starts returning after skipping one value. To prevent that:
-        coil_addr--;
-
-        //Assigning values to the request string
-        //int length = ceil(coil_count/8);
-
+        uint8_t device_id_code, obj_id;
+        //printf("mei type data%d\n", *MEI_type_data);
+        device_id_code = *(MEI_type_data);
+        obj_id = *(MEI_type_data+1);
         uint8_t* temp_ptr = request_ADU->PDU_data;
-        *temp_ptr = (coil_addr>>8)& '\xFF';
+        *temp_ptr = MEI_type;
         temp_ptr++;
-        *temp_ptr = (coil_addr)& '\xFF';
+        *temp_ptr = device_id_code;
         temp_ptr++;
-        if(coil_status==1)
-        {
-            *temp_ptr = '\xFF';
-            temp_ptr++;
-            *temp_ptr = '\x00';
-            temp_ptr++;
-        }
-        else
-        {
-            *temp_ptr = '\x00';
-            temp_ptr++;
-            *temp_ptr = '\x00';
-            temp_ptr++;
-        }
-        fill_packet('\x05', request_ADU, DEFAULT_MSG_LEN);
-        //temp_ptr = request_ADU->PDU_data;
+        *temp_ptr = obj_id;
+        temp_ptr++;
 
         send_len = temp_ptr - send_buffer;
+        //printf("%d\n", send_len);
+        int length = send_len-DEFAULT_MSG_LEN;
+        fill_packet('\x2B', request_ADU, length);
         //printf("sendlen%d req ADU %d elngth %d \n", send_len, sizeof(request_ADU), length);
         recv_len = HEADER_LEN;
-        int receive_len = temp_ptr - request_ADU->PDU_data; //same as the sent data len
+        int receive_len = 253; //MAX SIZE POSS
         int ret;
         if((ret = send_recv(sockfd, send_buffer, send_len, receive_buffer, receive_len))==UMODBUS_RECEIVE_ERROR)
         {
@@ -1151,15 +1393,62 @@ uint32_t encap_interface_transport (uint8_t MEI_type,
         }
         else
         {
+            for(int i=0;i<50;i++)
+            {
+                //printf("recv buf i %x\n", receive_buffer[i]);
+            }
             //memory comparison for the headers of the receive and the send buffers
             int result = memcmp(send_buffer, receive_buffer, HEADER_LEN);
             //printf("result%d\n",result );
-                int response_size = receive_buffer[8];
-                for(int i=1;i<=response_size;i++)
+            uint32_t response_size = receive_buffer[5] | (receive_buffer[4]<<8);
+            //printf("%x %x zzzz\n", receive_buffer[4], receive_buffer[5]);
+            *MEI_type_data_size = response_size;
+            int prev_resp_size = total_resp_size;
+            total_resp_size += response_size;
+            MEI_return_values = realloc(MEI_return_values,total_resp_size);
+            //printf("total_resp_size %d prev respsize %d\n", total_resp_size, prev_resp_size);
+            //printf("receive buffer 11 %x\n", receive_buffer[11]);
+            for(int i=0;i<prev_resp_size;i++)
+            {
+                //printf("%d PREV MEI%x\n", i, MEI_return_values[i]);
+            }
+            for(int i=0;i<total_resp_size-prev_resp_size;i++)
+            {
+                MEI_return_values[prev_resp_size+i] = receive_buffer[i];
+                //printf("%d MEI%x\n", i, receive_buffer[i]);
+                //MEI_type_data[i] = receive_buffer[i];
+            }
+            if(receive_buffer[11]==0xff)
+            {
+                //printf("IN IFFFFFFFFFFFFFF\n" );
+                while(receive_buffer[11]==0xff)
                 {
-                    int temp_byte = (receive_buffer[8+i]);
-                    printf("%x\n", temp_byte);
+                    *(MEI_type_data+1) = receive_buffer[12];
+                    encap_interface_transport (MEI_type, MEI_type_data, MEI_type_data_size);
+                    // return it, put in mei type data and mei tye data size and return
                 }
+            }
+            else
+            {
+                //printf("IN ELSEEEEEEEEEEe\n");
+                //printf("mei type data size %d\n", *MEI_type_data_size);
+                for(int i=0;i<response_size;i++)
+                {
+                    MEI_return_values[prev_resp_size+i] = receive_buffer[i];
+                    //MEI_type_data[i] = receive_buffer[i];
+                }
+                //MEI_type_data = malloc(sizeof(MEI_return_values));
+                //memcpy(MEI_type_data, MEI_return_values, sizeof(MEI_return_values));
+                uint16_t* temp = MEI_type_data;
+                for(int i=0;i<total_resp_size;i++)
+                {
+                    *temp = *(MEI_return_values+i);
+                    temp++;
+                    //printf("%d %x %x\n", i, *(MEI_return_values+i), *(MEI_type_data+i));
+                }
+                printf("total_resp_size in function %d\n", total_resp_size);
+                *MEI_type_data_size = total_resp_size;
+            }
             if(result==1)
             {
                 ret_val = UMODBUS_STATUS_SUCCESS;
